@@ -1,0 +1,1486 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stock Opname</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    
+    <!-- Babel standalone for JSX parsing -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- jsPDF & AutoTable for PDF Generation -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
+
+    <!-- Google Font Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f8fafc;
+        }
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+        .pulse-online {
+            box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+            animation: pulse-green 2s infinite;
+        }
+        @keyframes pulse-green {
+            0% {
+                transform: scale(0.95);
+                box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+            }
+            70% {
+                transform: scale(1);
+                box-shadow: 0 0 0 6px rgba(16, 185, 129, 0);
+            }
+            100% {
+                transform: scale(0.95);
+                box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+            }
+        }
+    </style>
+</head>
+<body class="text-slate-800 antialiased">
+    <div id="root"></div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDoc, updateDoc, deleteDoc, collection, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Global environment variables or standard fallbacks
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'stock-opname-app-v1';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' 
+            ? JSON.parse(__firebase_config) 
+            : {
+                apiKey: "AIzaSyDummyKeyForFallbackPurposeOnly",
+                authDomain: "stock-opname-app.firebaseapp.com",
+                projectId: "stock-opname-app",
+                storageBucket: "stock-opname-app.appspot.com",
+                messagingSenderId: "1234567890",
+                appId: "1:1234567890:web:abcdef123456"
+            };
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        let app, auth, db;
+        try {
+            app = initializeApp(firebaseConfig);
+            auth = getAuth(app);
+            db = getFirestore(app);
+        } catch (e) {
+            console.warn("Firebase initialization warning: ", e);
+        }
+
+        window.firebaseInstance = {
+            app, auth, db, appId, initialAuthToken,
+            signInAnonymously, signInWithCustomToken, onAuthStateChanged,
+            doc, setDoc, getDoc, updateDoc, deleteDoc, collection, onSnapshot
+        };
+
+        window.dispatchEvent(new Event('firebase-ready'));
+    </script>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo, useRef } = React;
+
+        // Safe Lucide Icon component wrapper to prevent React DOM mutation crashes
+        const Icon = ({ name, className = "w-4 h-4", ...props }) => {
+            const containerRef = useRef(null);
+
+            useEffect(() => {
+                if (containerRef.current) {
+                    containerRef.current.innerHTML = `<i data-lucide="${name}" class="${className}"></i>`;
+                    if (window.lucide && typeof window.lucide.createIcons === 'function') {
+                        try {
+                            window.lucide.createIcons({ root: containerRef.current });
+                        } catch (e) {
+                            window.lucide.createIcons();
+                        }
+                    }
+                }
+            }, [name, className]);
+
+            return <span ref={containerRef} className="inline-flex items-center justify-center shrink-0" {...props} />;
+        };
+
+        class ErrorBoundary extends React.Component {
+            constructor(props) {
+                super(props);
+                this.state = { hasError: false, error: null };
+            }
+            static getDerivedStateFromError(error) {
+                return { hasError: true, error };
+            }
+            componentDidCatch(error, errorInfo) {
+                console.error("App Error caught by boundary:", error, errorInfo);
+            }
+            render() {
+                if (this.state.hasError) {
+                    return (
+                        <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
+                            <div className="bg-white p-6 rounded-xl shadow-lg max-w-md w-full text-center">
+                                <div className="w-12 h-12 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mx-auto mb-3">
+                                    <Icon name="alert-triangle" className="w-6 h-6" />
+                                </div>
+                                <h2 className="text-lg font-bold text-slate-800 mb-2">Aplikasi Mengalami Kendala</h2>
+                                <p className="text-xs text-slate-500 mb-4">{this.state.error?.toString()}</p>
+                                <button 
+                                    onClick={() => window.location.reload()} 
+                                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold"
+                                >
+                                    Muat Ulang Halaman
+                                </button>
+                            </div>
+                        </div>
+                    );
+                }
+                return this.props.children;
+            }
+        }
+
+        // Default initial data for items demo
+        const INITIAL_ITEMS = [
+            { id: 'item-1', code: 'BRG-001', name: 'Beras Premium 5kg', unit: 'Sak', stockAwal: 0, barangMasuk: 0, transferIn: 0, transferOut: 0, spoilWaste: 0, stockAkhir: 0, notes: 'Aman' },
+            { id: 'item-2', code: 'BRG-002', name: 'Minyak Goreng 2L', unit: 'Pouch', stockAwal: 0, barangMasuk: 0, transferIn: 0, transferOut: 0, spoilWaste: 0, stockAkhir: 0, notes: 'Stok cukup' },
+            { id: 'item-3', code: 'BRG-003', name: 'Gula Pasir 1kg', unit: 'Kg', stockAwal: 0, barangMasuk: 0, transferIn: 0, transferOut: 0, spoilWaste: 0, stockAkhir: 0, notes: 'Kemasan rusak 2' },
+            { id: 'item-4', code: 'BRG-004', name: 'Daging Ayam Broiler', unit: 'Kg', stockAwal: 0, barangMasuk: 0, transferIn: 0, transferOut: 0, spoilWaste: 0, stockAkhir: 0, notes: '3kg expired/spoil' },
+            { id: 'item-5', code: 'BRG-005', name: 'Telur Ayam Broiler', unit: 'Tre', stockAwal: 0, barangMasuk: 0, transferIn: 0, transferOut: 0, spoilWaste: 0, stockAkhir: 0, notes: 'Pecah 1 tre' },
+        ];
+
+        const Toast = ({ toast, onClose }) => {
+            if (!toast.show) return null;
+
+            return (
+                <div className="fixed bottom-5 right-5 z-50 flex items-center gap-3 px-4 py-3 rounded-xl shadow-xl text-white transition-all transform duration-300 translate-y-0"
+                     style={{ backgroundColor: toast.type === 'success' ? '#059669' : toast.type === 'error' ? '#dc2626' : '#4f46e5' }}>
+                    <Icon name={toast.type === 'success' ? 'check-circle' : toast.type === 'error' ? 'alert-circle' : 'info'} className="w-5 h-5" />
+                    <span className="text-sm font-medium">{toast.message}</span>
+                    <button onClick={onClose} className="ml-2 hover:opacity-80">
+                        <Icon name="x" className="w-4 h-4" />
+                    </button>
+                </div>
+            );
+        };
+
+        function App() {
+            const getTodayDate = () => new Date().toISOString().split('T')[0];
+
+            const [activeTab, setActiveTab] = useState('opname'); // 'opname' | 'suratJalan' | 'riwayat'
+            const [selectedDate, setSelectedDate] = useState(getTodayDate());
+            const [picName, setPicName] = useState(() => localStorage.getItem('so_pic_name') || 'ilham (checker)');
+            const [spvName, setSpvName] = useState(() => localStorage.getItem('so_spv_name') || 'wisnu (SPV)');
+            
+            // Online status & Firebase sync
+            const [isOnline, setIsOnline] = useState(false);
+            const [isSyncing, setIsSyncing] = useState(false);
+            const [currentUser, setCurrentUser] = useState(null);
+
+            const [items, setItems] = useState([]);
+            const [suratJalanList, setSuratJalanList] = useState([]);
+            const [soHistory, setSoHistory] = useState([]);
+
+            const [searchQuery, setSearchQuery] = useState('');
+            const [toast, setToast] = useState({ show: false, message: '', type: 'info' });
+            
+            // Modals
+            const [showAddModal, setShowAddModal] = useState(false);
+            const [showUploadModal, setShowUploadModal] = useState(false);
+            const [previewImage, setPreviewImage] = useState(null);
+            const [historyDetail, setHistoryDetail] = useState(null);
+            const [deleteConfirm, setDeleteConfirm] = useState(null);
+
+            // Forms
+            const [newItem, setNewItem] = useState({ code: '', name: '', unit: 'Pcs', stockAwal: 0, notes: '' });
+            const [newSJ, setNewSJ] = useState({ docNumber: '', supplier: '', notes: '', imageFile: null, imagePreview: null });
+
+            useEffect(() => {
+                let unsubItems = null;
+                let unsubSJ = null;
+                let unsubHistory = null;
+
+                const setupRealtimeSync = async () => {
+                    if (!window.firebaseInstance) {
+                        await new Promise((resolve) => window.addEventListener('firebase-ready', resolve, { once: true }));
+                    }
+
+                    const {
+                        auth, db, appId, initialAuthToken,
+                        signInAnonymously, signInWithCustomToken,
+                        collection, doc, setDoc, onSnapshot
+                    } = window.firebaseInstance;
+
+                    if (!db || !auth) {
+                        console.warn("Firestore instance unavailable, falling back to local storage state.");
+                        setIsOnline(false);
+                        loadFromLocalStorage();
+                        return;
+                    }
+
+                    try {
+                        setIsSyncing(true);
+                        // Rule 3: Auth First
+                        let userCred;
+                        if (initialAuthToken) {
+                            try {
+                                userCred = await signInWithCustomToken(auth, initialAuthToken);
+                            } catch (e) {
+                                userCred = await signInAnonymously(auth);
+                            }
+                        } else {
+                            userCred = await signInAnonymously(auth);
+                        }
+                        
+                        setCurrentUser(userCred.user);
+                        setIsOnline(true);
+
+                        // Rule 1: Public paths for collaborative warehouse team access
+                        const itemsColRef = collection(db, 'artifacts', appId, 'public', 'data', 'items');
+                        const sjColRef = collection(db, 'artifacts', appId, 'public', 'data', 'suratJalan');
+                        const historyColRef = collection(db, 'artifacts', appId, 'public', 'data', 'soHistory');
+
+                        // 1. Items Realtime Listener
+                        unsubItems = onSnapshot(itemsColRef, (snapshot) => {
+                            const loaded = [];
+                            snapshot.forEach(docSnap => {
+                                loaded.push({ id: docSnap.id, ...docSnap.data() });
+                            });
+                            
+                            if (loaded.length === 0) {
+                                // Seed initial demo items if collection is empty
+                                INITIAL_ITEMS.forEach(async (item) => {
+                                    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'items', item.id), item);
+                                });
+                                setItems(INITIAL_ITEMS);
+                            } else {
+                                setItems(loaded);
+                            }
+                            setIsSyncing(false);
+                        }, (error) => {
+                            console.error("Firestore Items Error:", error);
+                            setIsSyncing(false);
+                        });
+
+                        // 2. Surat Jalan Realtime Listener
+                        unsubSJ = onSnapshot(sjColRef, (snapshot) => {
+                            const loaded = [];
+                            snapshot.forEach(docSnap => {
+                                loaded.push({ id: docSnap.id, ...docSnap.data() });
+                            });
+                            // Sort in JS memory (Rule 2)
+                            loaded.sort((a, b) => b.id.localeCompare(a.id));
+                            setSuratJalanList(loaded);
+                        }, (error) => {
+                            console.error("Firestore Surat Jalan Error:", error);
+                        });
+
+                        // 3. SO History Realtime Listener
+                        unsubHistory = onSnapshot(historyColRef, (snapshot) => {
+                            const loaded = [];
+                            snapshot.forEach(docSnap => {
+                                loaded.push({ id: docSnap.id, ...docSnap.data() });
+                            });
+                            // Sort in JS memory (Rule 2)
+                            loaded.sort((a, b) => b.id.localeCompare(a.id));
+                            setSoHistory(loaded);
+                        }, (error) => {
+                            console.error("Firestore SO History Error:", error);
+                        });
+
+                    } catch (err) {
+                        console.error("Firebase Sync Error:", err);
+                        setIsOnline(false);
+                        setIsSyncing(false);
+                        loadFromLocalStorage();
+                    }
+                };
+
+                setupRealtimeSync();
+
+                return () => {
+                    if (unsubItems) unsubItems();
+                    if (unsubSJ) unsubSJ();
+                    if (unsubHistory) unsubHistory();
+                };
+            }, []);
+
+            const loadFromLocalStorage = () => {
+                const savedItems = localStorage.getItem('so_items_data');
+                setItems(savedItems ? JSON.parse(savedItems) : INITIAL_ITEMS);
+
+                const savedSJ = localStorage.getItem('so_surat_jalan_data');
+                setSuratJalanList(savedSJ ? JSON.parse(savedSJ) : []);
+
+                const savedHist = localStorage.getItem('so_history_data');
+                setSoHistory(savedHist ? JSON.parse(savedHist) : []);
+            };
+
+            useEffect(() => {
+                localStorage.setItem('so_pic_name', picName);
+            }, [picName]);
+
+            useEffect(() => {
+                localStorage.setItem('so_spv_name', spvName);
+            }, [spvName]);
+
+            const showNotification = (message, type = 'info') => {
+                setToast({ show: true, message, type });
+                setTimeout(() => {
+                    setToast({ show: false, message: '', type: 'info' });
+                }, 3500);
+            };
+
+            const calculateUsage = (item) => {
+                const awal = Number(item.stockAwal) || 0;
+                const masuk = Number(item.barangMasuk) || 0;
+                const trIn = Number(item.transferIn) || 0;
+                const trOut = Number(item.transferOut) || 0;
+                const spoil = Number(item.spoilWaste) || 0;
+                const akhir = Number(item.stockAkhir) || 0;
+
+                const totalTersedia = awal + masuk + trIn;
+                return totalTersedia - trOut - spoil - akhir;
+            };
+
+            // Realtime Sync Helper for Item Changes
+            const syncItemToFirestore = async (item) => {
+                if (window.firebaseInstance && window.firebaseInstance.db) {
+                    const { db, appId, doc, setDoc } = window.firebaseInstance;
+                    try {
+                        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'items', item.id), item, { merge: true });
+                    } catch (err) {
+                        console.error("Firestore sync item failed:", err);
+                    }
+                }
+            };
+
+            const handleItemValueChange = (id, field, value) => {
+                const numericValue = value === '' ? '' : Math.max(0, Number(value));
+                setItems(prev => prev.map(item => {
+                    if (item.id === id) {
+                        const updated = { ...item, [field]: numericValue };
+                        syncItemToFirestore(updated);
+                        return updated;
+                    }
+                    return item;
+                }));
+            };
+
+            const handleItemTextChange = (id, field, value) => {
+                setItems(prev => prev.map(item => {
+                    if (item.id === id) {
+                        const updated = { ...item, [field]: value };
+                        syncItemToFirestore(updated);
+                        return updated;
+                    }
+                    return item;
+                }));
+            };
+
+            const handleAddNewItem = async (e) => {
+                e.preventDefault();
+                if (!newItem.name || !newItem.code) {
+                    showNotification('Harap isi kode dan nama barang!', 'error');
+                    return;
+                }
+
+                const created = {
+                    id: 'item-' + Date.now(),
+                    code: newItem.code,
+                    name: newItem.name,
+                    unit: newItem.unit || 'Pcs',
+                    stockAwal: Number(newItem.stockAwal) || 0,
+                    barangMasuk: 0,
+                    transferIn: 0,
+                    transferOut: 0,
+                    spoilWaste: 0,
+                    stockAkhir: Number(newItem.stockAwal) || 0,
+                    notes: newItem.notes || ''
+                };
+
+                setItems(prev => [...prev, created]);
+                await syncItemToFirestore(created);
+
+                setShowAddModal(false);
+                setNewItem({ code: '', name: '', unit: 'Pcs', stockAwal: 0, notes: '' });
+                showNotification('Barang berhasil ditambahkan dan disinkronkan!', 'success');
+            };
+
+            const handleDeleteItem = async (itemToDelete) => {
+                setItems(prev => prev.filter(i => i.id !== itemToDelete.id));
+                if (window.firebaseInstance && window.firebaseInstance.db) {
+                    const { db, appId, doc, deleteDoc } = window.firebaseInstance;
+                    try {
+                        await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'items', itemToDelete.id));
+                    } catch (err) {
+                        console.error("Error deleting item from Firestore:", err);
+                    }
+                }
+                setDeleteConfirm(null);
+                showNotification('Barang berhasil dihapus!', 'info');
+            };
+
+            const handleImageChange = (e) => {
+                const file = e.target.files[0];
+                if (file) {
+                    if (!file.type.includes('image')) {
+                        showNotification('Harap unggah file gambar (JPG/PNG)!', 'error');
+                        return;
+                    }
+                    const reader = new FileReader();
+                    reader.onloadend = () => {
+                        setNewSJ(prev => ({
+                            ...prev,
+                            imageFile: file,
+                            imagePreview: reader.result
+                        }));
+                    };
+                    reader.readAsDataURL(file);
+                }
+            };
+
+            const handleUploadSJ = async (e) => {
+                e.preventDefault();
+                if (!newSJ.docNumber || !newSJ.imagePreview) {
+                    showNotification('Nomor Surat Jalan & Foto wajib diisi!', 'error');
+                    return;
+                }
+
+                const newEntry = {
+                    id: 'sj-' + Date.now(),
+                    date: selectedDate,
+                    docNumber: newSJ.docNumber,
+                    supplier: newSJ.supplier || 'Tidak disebutkan',
+                    notes: newSJ.notes || '',
+                    imageUrl: newSJ.imagePreview,
+                    createdAt: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })
+                };
+
+                setSuratJalanList(prev => [newEntry, ...prev]);
+
+                if (window.firebaseInstance && window.firebaseInstance.db) {
+                    const { db, appId, doc, setDoc } = window.firebaseInstance;
+                    try {
+                        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'suratJalan', newEntry.id), newEntry);
+                    } catch (err) {
+                        console.error("Error uploading SJ to Firestore:", err);
+                    }
+                }
+
+                setShowUploadModal(false);
+                setNewSJ({ docNumber: '', supplier: '', notes: '', imageFile: null, imagePreview: null });
+                showNotification('Surat jalan berhasil diunggah secara online!', 'success');
+            };
+
+            const handleDeleteSJ = async (sjId) => {
+                setSuratJalanList(prev => prev.filter(x => x.id !== sjId));
+                if (window.firebaseInstance && window.firebaseInstance.db) {
+                    const { db, appId, doc, deleteDoc } = window.firebaseInstance;
+                    try {
+                        await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'suratJalan', sjId));
+                    } catch (err) {
+                        console.error("Error deleting SJ from Firestore:", err);
+                    }
+                }
+                showNotification('Dokumen Surat Jalan dihapus!', 'info');
+            };
+
+            const handleSaveSoSession = async () => {
+                if (items.length === 0) {
+                    showNotification('Tidak ada data barang untuk disimpan!', 'error');
+                    return;
+                }
+
+                const totalSpoil = items.reduce((acc, curr) => acc + (Number(curr.spoilWaste) || 0), 0);
+                const totalUsage = items.reduce((acc, curr) => acc + calculateUsage(curr), 0);
+
+                const record = {
+                    id: 'SO-' + Date.now(),
+                    date: selectedDate,
+                    timestamp: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
+                    picName: picName || 'Petugas checker',
+                    spvName: spvName || 'Supervisor',
+                    totalItems: items.length,
+                    totalSpoil,
+                    totalUsage,
+                    itemsSnapshot: JSON.parse(JSON.stringify(items))
+                };
+
+                setSoHistory(prev => [record, ...prev]);
+
+                if (window.firebaseInstance && window.firebaseInstance.db) {
+                    const { db, appId, doc, setDoc } = window.firebaseInstance;
+                    try {
+                        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'soHistory', record.id), record);
+                    } catch (err) {
+                        console.error("Error saving history to Firestore:", err);
+                    }
+                }
+
+                showNotification(`Hasil Opname (${selectedDate}) tersimpan ke Riwayat Online!`, 'success');
+            };
+
+            const generatePDF = (customItems = null, dateTitle = selectedDate, customPic = picName, customSpv = spvName) => {
+                try {
+                    const { jsPDF } = window.jspdf;
+                    const doc = new jsPDF('landscape');
+                    const targetItems = customItems || items;
+
+                    doc.setFontSize(18);
+                    doc.setTextColor(30, 41, 59);
+                    doc.text('LAPORAN STOCK OPNAME ALDIS HOTDOG BLOK M', 14, 18);
+
+                    doc.setFontSize(10);
+                    doc.setTextColor(100, 116, 139);
+                    doc.text(`Tanggal Opname: ${dateTitle}`, 14, 25);
+                    doc.text(`PIC (Petugas): ${customPic || '-'}  |  SPV (Supervisor): ${customSpv || '-'}`, 14, 30);
+                    doc.text(`Waktu Cetak: ${new Date().toLocaleString('id-ID')} (Online Sync Active)`, 14, 35);
+
+                    const tableColumn = [
+                        "No", "Kode", "Nama Barang", "Satuan", 
+                        "Stk Awal", "Masuk", "Trf In", "Trf Out", 
+                        "Spoil/Waste", "Stk Akhir", "Usage", "Catatan"
+                    ];
+
+                    const tableRows = targetItems.map((item, index) => [
+                        index + 1,
+                        item.code,
+                        item.name,
+                        item.unit,
+                        item.stockAwal,
+                        item.barangMasuk,
+                        item.transferIn,
+                        item.transferOut,
+                        item.spoilWaste,
+                        item.stockAkhir,
+                        calculateUsage(item),
+                        item.notes || '-'
+                    ]);
+
+                    doc.autoTable({
+                        head: [tableColumn],
+                        body: tableRows,
+                        startY: 40,
+                        theme: 'grid',
+                        headStyles: {
+                            fillColor: [79, 70, 229],
+                            textColor: [255, 255, 255],
+                            fontStyle: 'bold',
+                            halign: 'center'
+                        },
+                        bodyStyles: {
+                            fontSize: 8,
+                            textColor: [51, 65, 85]
+                        },
+                        columnStyles: {
+                            0: { halign: 'center', cellWidth: 10 },
+                            1: { halign: 'center', cellWidth: 20 },
+                            2: { cellWidth: 40 },
+                            3: { halign: 'center', cellWidth: 16 },
+                            4: { halign: 'right', cellWidth: 18 },
+                            5: { halign: 'right', cellWidth: 18 },
+                            6: { halign: 'right', cellWidth: 18 },
+                            7: { halign: 'right', cellWidth: 18 },
+                            8: { halign: 'right', cellWidth: 22 },
+                            9: { halign: 'right', cellWidth: 20 },
+                            10: { halign: 'right', cellWidth: 18 },
+                            11: { cellWidth: 'auto' }
+                        }
+                    });
+
+                    const finalY = doc.lastAutoTable.finalY + 20;
+                    if (finalY < 180) {
+                        doc.setFontSize(9);
+                        doc.setTextColor(51, 65, 85);
+                        
+                        doc.text("Dibuat Oleh (PIC),", 30, finalY);
+                        doc.text(`( ${customPic || 'Petugas Stock Opname'} )`, 20, finalY + 25);
+
+                        doc.text("Diverifikasi Oleh (SPV),", 130, finalY);
+                        doc.text(`( ${customSpv || 'Supervisor'} )`, 122, finalY + 25);
+                    }
+
+                    doc.save(`Stock_Opname_${dateTitle}.pdf`);
+                    showNotification('Laporan PDF berhasil diunduh!', 'success');
+                } catch (err) {
+                    console.error("PDF Generation Error: ", err);
+                    showNotification('Gagal membuat PDF.', 'error');
+                }
+            };
+
+            const filteredItems = useMemo(() => {
+                return items.filter(item => 
+                    item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                    item.code.toLowerCase().includes(searchQuery.toLowerCase())
+                );
+            }, [items, searchQuery]);
+
+            const filteredSuratJalan = useMemo(() => {
+                return suratJalanList.filter(sj => sj.date === selectedDate);
+            }, [suratJalanList, selectedDate]);
+
+            const filteredHistory = useMemo(() => {
+                return soHistory.filter(h => h.date === selectedDate || !selectedDate);
+            }, [soHistory, selectedDate]);
+
+            return (
+                <div className="min-h-screen flex flex-col bg-slate-50">
+                    {/* Header Bar */}
+                    <header className="bg-indigo-900 text-white shadow-lg sticky top-0 z-30">
+                        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                            <div className="flex flex-col sm:flex-row items-center justify-between py-3 gap-3">
+                                <div className="flex items-center gap-3">
+                                    <div className="p-2.5 bg-indigo-600 rounded-xl shadow-inner flex items-center justify-center">
+                                        <Icon name="boxes" className="w-6 h-6 text-white" />
+                                    </div>
+                                    <div>
+                                        <div className="flex items-center gap-2">
+                                            <h1 className="font-bold text-lg leading-tight tracking-wide">Stock Opname Blok M</h1>
+                                            {isOnline ? (
+                                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                                                    <span className="w-2 h-2 rounded-full bg-emerald-400 pulse-online"></span>
+                                                    Online BLOK M
+                                                </span>
+                                            ) : (
+                                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                                                    <Icon name="wifi-off" className="w-3 h-3" />
+                                                    BLOK M (Offline)
+                                                </span>
+                                            )}
+                                        </div>
+                                        <p className="text-xs text-indigo-200">Sistem Gudang</p>
+                                    </div>
+                                </div>
+
+                                <div className="flex items-center gap-3 w-full sm:w-auto justify-end">
+                                    <div className="flex items-center gap-2 bg-indigo-950/70 px-3 py-1.5 rounded-lg border border-indigo-700/80">
+                                        <Icon name="calendar" className="w-4 h-4 text-indigo-300" />
+                                        <span className="text-xs text-indigo-200 font-medium hidden md:inline">Tanggal Opname:</span>
+                                        <input 
+                                            type="date" 
+                                            value={selectedDate} 
+                                            onChange={(e) => setSelectedDate(e.target.value)}
+                                            className="bg-transparent text-white text-xs font-semibold focus:outline-none cursor-pointer"
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Navigation Tabs */}
+                        <div className="bg-indigo-950/80 border-t border-indigo-800/50">
+                            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex space-x-1 sm:space-x-4">
+                                <button 
+                                    onClick={() => setActiveTab('opname')}
+                                    className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+                                        activeTab === 'opname' 
+                                            ? 'border-emerald-400 text-emerald-300 bg-indigo-900/50' 
+                                            : 'border-transparent text-indigo-200 hover:text-white hover:bg-indigo-900/30'
+                                    }`}
+                                >
+                                    <Icon name="clipboard-list" className="w-4 h-4" />
+                                    <span>Stock Opname</span>
+                                </button>
+
+                                <button 
+                                    onClick={() => setActiveTab('suratJalan')}
+                                    className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+                                        activeTab === 'suratJalan' 
+                                            ? 'border-emerald-400 text-emerald-300 bg-indigo-900/50' 
+                                            : 'border-transparent text-indigo-200 hover:text-white hover:bg-indigo-900/30'
+                                    }`}
+                                >
+                                    <Icon name="file-image" className="w-4 h-4" />
+                                    <span>Upload Surat Jalan</span>
+                                    {filteredSuratJalan.length > 0 && (
+                                        <span className="ml-1 px-1.5 py-0.5 text-xs bg-emerald-500 text-slate-900 font-bold rounded-full">
+                                            {filteredSuratJalan.length}
+                                        </span>
+                                    )}
+                                </button>
+
+                                <button 
+                                    onClick={() => setActiveTab('riwayat')}
+                                    className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+                                        activeTab === 'riwayat' 
+                                            ? 'border-emerald-400 text-emerald-300 bg-indigo-900/50' 
+                                            : 'border-transparent text-indigo-200 hover:text-white hover:bg-indigo-900/30'
+                                    }`}
+                                >
+                                    <Icon name="history" className="w-4 h-4" />
+                                    <span>Riwayat SO</span>
+                                </button>
+                            </div>
+                        </div>
+                    </header>
+
+                    {/* Main Content Body */}
+                    <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+                        
+                        {/* TAB 1: STOCK OPNAME MAIN SCREEN */}
+                        {activeTab === 'opname' && (
+                            <div className="space-y-6">
+                                {/* PIC & SPV Inputs Strip */}
+                                <div className="bg-gradient-to-r from-indigo-900 via-indigo-800 to-slate-800 text-white p-4 rounded-xl shadow-md flex flex-col md:flex-row items-center justify-between gap-4">
+                                    <div className="flex items-center gap-3">
+                                        <div className="p-2 bg-emerald-500/20 rounded-lg text-emerald-400 border border-emerald-500/30">
+                                            <Icon name="user-check" className="w-5 h-5" />
+                                        </div>
+                                        <div>
+                                            <h3 className="font-semibold text-sm">Penanggung Jawab Opname</h3>
+                                            <p className="text-xs text-indigo-200">Nama PIC & SPV tersinkronisasi otomatis untuk laporan & PDF</p>
+                                        </div>
+                                    </div>
+
+                                    <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+                                        <div className="flex items-center gap-2 bg-indigo-950/70 px-3 py-1.5 rounded-lg border border-indigo-700 w-full sm:w-auto">
+                                            <span className="text-xs text-indigo-300 font-medium">PIC (Petugas):</span>
+                                            <input 
+                                                type="text" 
+                                                placeholder="Nama Petugas..." 
+                                                value={picName}
+                                                onChange={(e) => setPicName(e.target.value)}
+                                                className="bg-transparent text-white text-xs font-semibold focus:outline-none w-32 placeholder-indigo-400"
+                                            />
+                                        </div>
+
+                                        <div className="flex items-center gap-2 bg-indigo-950/70 px-3 py-1.5 rounded-lg border border-indigo-700 w-full sm:w-auto">
+                                            <span className="text-xs text-indigo-300 font-medium">SPV (Supervisor):</span>
+                                            <input 
+                                                type="text" 
+                                                placeholder="Nama SPV..." 
+                                                value={spvName}
+                                                onChange={(e) => setSpvName(e.target.value)}
+                                                className="bg-transparent text-white text-xs font-semibold focus:outline-none w-32 placeholder-indigo-400"
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Summary Metrics */}
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                    <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
+                                        <div>
+                                            <p className="text-xs text-slate-500 font-medium">Total Item</p>
+                                            <p className="text-xl font-bold text-slate-800 mt-1">{items.length}</p>
+                                        </div>
+                                        <div className="p-2.5 bg-indigo-50 text-indigo-600 rounded-lg">
+                                            <Icon name="package" className="w-5 h-5" />
+                                        </div>
+                                    </div>
+
+                                    <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
+                                        <div>
+                                            <p className="text-xs text-slate-500 font-medium">Total Barang Masuk</p>
+                                            <p className="text-xl font-bold text-emerald-600 mt-1">
+                                                {items.reduce((acc, curr) => acc + (Number(curr.barangMasuk) || 0), 0)}
+                                            </p>
+                                        </div>
+                                        <div className="p-2.5 bg-emerald-50 text-emerald-600 rounded-lg">
+                                            <Icon name="arrow-down-left" className="w-5 h-5" />
+                                        </div>
+                                    </div>
+
+                                    <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
+                                        <div>
+                                            <p className="text-xs text-slate-500 font-medium">Total Spoil & Waste</p>
+                                            <p className="text-xl font-bold text-rose-600 mt-1">
+                                                {items.reduce((acc, curr) => acc + (Number(curr.spoilWaste) || 0), 0)}
+                                            </p>
+                                        </div>
+                                        <div className="p-2.5 bg-rose-50 text-rose-600 rounded-lg">
+                                            <Icon name="trash-2" className="w-5 h-5" />
+                                        </div>
+                                    </div>
+
+                                    <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
+                                        <div>
+                                            <p className="text-xs text-slate-500 font-medium">Total Usage (Pemakaian)</p>
+                                            <p className="text-xl font-bold text-blue-600 mt-1">
+                                                {items.reduce((acc, curr) => acc + calculateUsage(curr), 0)}
+                                            </p>
+                                        </div>
+                                        <div className="p-2.5 bg-blue-50 text-blue-600 rounded-lg">
+                                            <Icon name="trending-down" className="w-5 h-5" />
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Control & Action Bar */}
+                                <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row gap-4 items-center justify-between">
+                                    <div className="relative w-full md:w-72">
+                                        <Icon name="search" className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
+                                        <input 
+                                            type="text" 
+                                            placeholder="Cari kode atau nama barang..." 
+                                            value={searchQuery}
+                                            onChange={(e) => setSearchQuery(e.target.value)}
+                                            className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                        />
+                                    </div>
+
+                                    <div className="flex flex-wrap items-center gap-2 w-full md:w-auto justify-end">
+                                        <button 
+                                            onClick={() => setShowAddModal(true)}
+                                            className="px-3 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-sm font-medium transition flex items-center gap-1.5"
+                                        >
+                                            <Icon name="plus-circle" className="w-4 h-4" />
+                                            <span>Tambah Barang</span>
+                                        </button>
+
+                                        <button 
+                                            onClick={() => generatePDF()}
+                                            className="px-3 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-sm font-medium transition flex items-center gap-1.5 shadow-sm"
+                                        >
+                                            <Icon name="file-text" className="w-4 h-4" />
+                                            <span>Cetak PDF</span>
+                                        </button>
+
+                                        <button 
+                                            onClick={handleSaveSoSession}
+                                            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium transition flex items-center gap-1.5 shadow-sm"
+                                        >
+                                            <Icon name="save" className="w-4 h-4" />
+                                            <span>Simpan SO Ke Riwayat</span>
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {/* Data Table */}
+                                <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-left text-sm">
+                                            <thead className="bg-slate-100 text-slate-700 border-b border-slate-200 text-xs uppercase font-semibold">
+                                                <tr>
+                                                    <th className="p-3">No</th>
+                                                    <th className="p-3">Kode & Nama Barang</th>
+                                                    <th className="p-3 text-center">Satuan (Edit)</th>
+                                                    <th className="p-3 text-center bg-slate-200/50">Stock Awal</th>
+                                                    <th className="p-3 text-center">Masuk</th>
+                                                    <th className="p-3 text-center">Transfer In</th>
+                                                    <th className="p-3 text-center">Transfer Out</th>
+                                                    <th className="p-3 text-center text-rose-700">Spoil/Waste</th>
+                                                    <th className="p-3 text-center bg-emerald-50 text-emerald-800">Stock Akhir</th>
+                                                    <th className="p-3 text-center bg-blue-50 text-blue-800">Usage</th>
+                                                    <th className="p-3">Catatan</th>
+                                                    <th className="p-3 text-center">Aksi</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-100">
+                                                {filteredItems.length === 0 ? (
+                                                    <tr>
+                                                        <td colSpan="12" className="p-8 text-center text-slate-400">
+                                                            <Icon name="inbox" className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                                                            Tidak ada data barang ditemukan.
+                                                        </td>
+                                                    </tr>
+                                                ) : (
+                                                    filteredItems.map((item, idx) => {
+                                                        const usageVal = calculateUsage(item);
+                                                        return (
+                                                            <tr key={item.id} className="hover:bg-slate-50/80 transition">
+                                                                <td className="p-3 text-slate-500 font-medium text-xs">{idx + 1}</td>
+                                                                <td className="p-3">
+                                                                    <div className="font-semibold text-slate-800">{item.name}</div>
+                                                                    <div className="text-xs text-slate-400 font-mono">{item.code}</div>
+                                                                </td>
+                                                                
+                                                                {/* Editable Satuan Field */}
+                                                                <td className="p-2 text-center">
+                                                                    <input 
+                                                                        type="text"
+                                                                        value={item.unit}
+                                                                        onChange={(e) => handleItemTextChange(item.id, 'unit', e.target.value)}
+                                                                        className="w-20 text-center py-1 px-1.5 border border-slate-200 rounded focus:ring-2 focus:ring-indigo-500 text-xs font-semibold text-slate-700 bg-slate-50 hover:bg-white transition"
+                                                                        placeholder="Satuan"
+                                                                    />
+                                                                </td>
+                                                                
+                                                                {/* Stock Awal */}
+                                                                <td className="p-2 text-center bg-slate-50/50">
+                                                                    <input 
+                                                                        type="number" 
+                                                                        value={item.stockAwal} 
+                                                                        onChange={(e) => handleItemValueChange(item.id, 'stockAwal', e.target.value)}
+                                                                        className="w-16 text-center py-1 border border-slate-200 rounded focus:ring-2 focus:ring-indigo-500 text-sm font-semibold text-slate-700"
+                                                                    />
+                                                                </td>
+
+                                                                {/* Barang Masuk */}
+                                                                <td className="p-2 text-center">
+                                                                    <input 
+                                                                        type="number" 
+                                                                        value={item.barangMasuk} 
+                                                                        onChange={(e) => handleItemValueChange(item.id, 'barangMasuk', e.target.value)}
+                                                                        className="w-16 text-center py-1 border border-slate-200 rounded focus:ring-2 focus:ring-emerald-500 text-sm font-semibold"
+                                                                    />
+                                                                </td>
+
+                                                                {/* Transfer In */}
+                                                                <td className="p-2 text-center">
+                                                                    <input 
+                                                                        type="number" 
+                                                                        value={item.transferIn} 
+                                                                        onChange={(e) => handleItemValueChange(item.id, 'transferIn', e.target.value)}
+                                                                        className="w-16 text-center py-1 border border-slate-200 rounded focus:ring-2 focus:ring-indigo-500 text-sm"
+                                                                    />
+                                                                </td>
+
+                                                                {/* Transfer Out */}
+                                                                <td className="p-2 text-center">
+                                                                    <input 
+                                                                        type="number" 
+                                                                        value={item.transferOut} 
+                                                                        onChange={(e) => handleItemValueChange(item.id, 'transferOut', e.target.value)}
+                                                                        className="w-16 text-center py-1 border border-slate-200 rounded focus:ring-2 focus:ring-indigo-500 text-sm"
+                                                                    />
+                                                                </td>
+
+                                                                {/* Spoil & Waste */}
+                                                                <td className="p-2 text-center bg-rose-50/30">
+                                                                    <input 
+                                                                        type="number" 
+                                                                        value={item.spoilWaste} 
+                                                                        onChange={(e) => handleItemValueChange(item.id, 'spoilWaste', e.target.value)}
+                                                                        className="w-16 text-center py-1 border border-rose-200 text-rose-700 bg-rose-50/50 rounded focus:ring-2 focus:ring-rose-500 font-semibold text-sm"
+                                                                    />
+                                                                </td>
+
+                                                                {/* Stock Akhir */}
+                                                                <td className="p-2 text-center bg-emerald-50/40">
+                                                                    <input 
+                                                                        type="number" 
+                                                                        value={item.stockAkhir} 
+                                                                        onChange={(e) => handleItemValueChange(item.id, 'stockAkhir', e.target.value)}
+                                                                        className="w-16 text-center py-1 border border-emerald-300 text-emerald-800 bg-white font-bold rounded focus:ring-2 focus:ring-emerald-500 text-sm"
+                                                                    />
+                                                                </td>
+
+                                                                {/* Calculated Usage */}
+                                                                <td className="p-3 text-center bg-blue-50/40">
+                                                                    <span className={`font-bold px-2 py-1 rounded text-xs ${usageVal < 0 ? 'bg-amber-100 text-amber-800' : 'text-blue-800 bg-blue-100/70'}`}>
+                                                                        {usageVal}
+                                                                    </span>
+                                                                </td>
+
+                                                                {/* Notes */}
+                                                                <td className="p-2">
+                                                                    <input 
+                                                                        type="text" 
+                                                                        placeholder="Keterangan..." 
+                                                                        value={item.notes} 
+                                                                        onChange={(e) => handleItemTextChange(item.id, 'notes', e.target.value)}
+                                                                        className="w-full py-1 px-2 text-xs border border-slate-200 rounded focus:ring-1 focus:ring-indigo-500"
+                                                                    />
+                                                                </td>
+
+                                                                {/* Action */}
+                                                                <td className="p-3 text-center">
+                                                                    <button 
+                                                                        onClick={() => setDeleteConfirm(item)}
+                                                                        className="text-slate-400 hover:text-rose-600 transition p-1"
+                                                                        title="Hapus Barang"
+                                                                    >
+                                                                        <Icon name="trash" className="w-4 h-4" />
+                                                                    </button>
+                                                                </td>
+                                                            </tr>
+                                                        );
+                                                    })
+                                                )}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* TAB 2: SURAT JALAN UPLOAD & VIEW SCREEN */}
+                        {activeTab === 'suratJalan' && (
+                            <div className="space-y-6">
+                                <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                                    <div>
+                                        <h2 className="text-lg font-bold text-slate-800">Upload Surat Jalan (Online Sync)</h2>
+                                        <p className="text-xs text-slate-500">
+                                            Menampilkan Surat Jalan real-time untuk tanggal: <span className="font-semibold text-indigo-600">{selectedDate}</span>
+                                        </p>
+                                    </div>
+
+                                    <button 
+                                        onClick={() => setShowUploadModal(true)}
+                                        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-medium transition flex items-center gap-2 shadow-sm"
+                                    >
+                                        <Icon name="upload-cloud" className="w-4 h-4" />
+                                        <span>Unggah Foto Surat Jalan</span>
+                                    </button>
+                                </div>
+
+                                {filteredSuratJalan.length === 0 ? (
+                                    <div className="bg-white rounded-xl border border-dashed border-slate-300 p-12 text-center">
+                                        <Icon name="file-x-2" className="w-12 h-12 mx-auto text-slate-300 mb-3" />
+                                        <h3 className="font-medium text-slate-600">Belum Ada Surat Jalan</h3>
+                                        <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
+                                            Tidak ada foto Surat Jalan yang diunggah untuk tanggal {selectedDate}. Silakan klik tombol unggah di atas.
+                                        </p>
+                                    </div>
+                                ) : (
+                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                        {filteredSuratJalan.map((sj) => (
+                                            <div key={sj.id} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col group hover:shadow-md transition">
+                                                <div className="relative h-48 bg-slate-100 overflow-hidden cursor-pointer" onClick={() => setPreviewImage(sj)}>
+                                                    <img 
+                                                        src={sj.imageUrl} 
+                                                        alt={sj.docNumber} 
+                                                        className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
+                                                        onError={(e) => {
+                                                            e.target.onerror = null; 
+                                                            e.target.src = 'https://placehold.co/600x400/e2e8f0/475569?text=Gagal+Muat+Gambar';
+                                                        }}
+                                                    />
+                                                    <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white font-medium text-xs gap-1.5">
+                                                        <Icon name="maximize-2" className="w-4 h-4" />
+                                                        <span>Lihat Foto Full</span>
+                                                    </div>
+                                                </div>
+
+                                                <div className="p-4 flex-1 flex flex-col justify-between">
+                                                    <div>
+                                                        <div className="flex items-center justify-between">
+                                                            <span className="px-2 py-0.5 text-xs font-semibold bg-indigo-50 text-indigo-700 rounded border border-indigo-100">
+                                                                {sj.docNumber}
+                                                            </span>
+                                                            <span className="text-xs text-slate-400">{sj.createdAt}</span>
+                                                        </div>
+
+                                                        <h4 className="font-bold text-slate-800 text-sm mt-2">{sj.supplier}</h4>
+                                                        <p className="text-xs text-slate-500 mt-1 line-clamp-2">{sj.notes || 'Tidak ada catatan'}</p>
+                                                    </div>
+
+                                                    <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
+                                                        <span className="text-slate-400">Tanggal: {sj.date}</span>
+                                                        <button 
+                                                            onClick={() => handleDeleteSJ(sj.id)}
+                                                            className="text-rose-500 hover:text-rose-700 font-medium"
+                                                        >
+                                                            Hapus
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* TAB 3: RIWAYAT STOCK OPNAME */}
+                        {activeTab === 'riwayat' && (
+                            <div className="space-y-6">
+                                <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                                    <div>
+                                        <h2 className="text-lg font-bold text-slate-800">Riwayat Stock Opname Online</h2>
+                                        <p className="text-xs text-slate-500">
+                                            Daftar hasil opname tersimpan real-time untuk tanggal: <span className="font-semibold text-indigo-600">{selectedDate || 'Semua Tanggal'}</span>
+                                        </p>
+                                    </div>
+
+                                    <button 
+                                        onClick={() => setSelectedDate('')}
+                                        className="text-xs text-indigo-600 hover:underline font-medium"
+                                    >
+                                        Tampilkan Semua Tanggal
+                                    </button>
+                                </div>
+
+                                {filteredHistory.length === 0 ? (
+                                    <div className="bg-white rounded-xl border border-slate-200 p-12 text-center">
+                                        <Icon name="history" className="w-10 h-10 mx-auto text-slate-300 mb-2" />
+                                        <p className="text-slate-600 font-medium">Belum ada riwayat stock opname tersimpan.</p>
+                                        <p className="text-xs text-slate-400 mt-1">
+                                            Selesaikan opname di tab "Stock Opname" lalu klik "Simpan SO Ke Riwayat".
+                                        </p>
+                                    </div>
+                                ) : (
+                                    <div className="space-y-4">
+                                        {filteredHistory.map((rec) => (
+                                            <div key={rec.id} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4 hover:border-indigo-200 transition">
+                                                <div className="space-y-1">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="font-bold text-slate-800">{rec.id}</span>
+                                                        <span className="px-2 py-0.5 text-xs bg-emerald-100 text-emerald-800 rounded font-semibold">
+                                                            Selesai
+                                                        </span>
+                                                    </div>
+                                                    <p className="text-xs text-slate-500">
+                                                        Tanggal: <span className="font-semibold text-slate-700">{rec.date}</span> | Jam: {rec.timestamp}
+                                                    </p>
+                                                    <div className="flex items-center gap-3 text-xs text-indigo-700 font-medium pt-0.5">
+                                                        <span>PIC: <strong>{rec.picName || '-'}</strong></span>
+                                                        <span>•</span>
+                                                        <span>SPV: <strong>{rec.spvName || '-'}</strong></span>
+                                                    </div>
+                                                    <div className="flex items-center gap-4 text-xs text-slate-600 pt-1">
+                                                        <span><strong>{rec.totalItems}</strong> Jenis Barang</span>
+                                                        <span>•</span>
+                                                        <span>Spoil: <strong className="text-rose-600">{rec.totalSpoil}</strong></span>
+                                                        <span>•</span>
+                                                        <span>Usage: <strong className="text-blue-600">{rec.totalUsage}</strong></span>
+                                                    </div>
+                                                </div>
+
+                                                <div className="flex items-center gap-2 w-full md:w-auto justify-end">
+                                                    <button 
+                                                        onClick={() => setHistoryDetail(rec)}
+                                                        className="px-3 py-1.5 border border-slate-200 hover:bg-slate-50 rounded-lg text-xs font-medium text-slate-700 transition flex items-center gap-1"
+                                                    >
+                                                        <Icon name="eye" className="w-3.5 h-3.5" />
+                                                        <span>Detail</span>
+                                                    </button>
+
+                                                    <button 
+                                                        onClick={() => generatePDF(rec.itemsSnapshot, rec.date, rec.picName, rec.spvName)}
+                                                        className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-medium transition flex items-center gap-1"
+                                                    >
+                                                        <Icon name="file-text" className="w-3.5 h-3.5" />
+                                                        <span>Cetak PDF</span>
+                                                    </button>
+
+                                                    <button 
+                                                        onClick={() => {
+                                                            setItems(rec.itemsSnapshot);
+                                                            if (rec.picName) setPicName(rec.picName);
+                                                            if (rec.spvName) setSpvName(rec.spvName);
+                                                            setActiveTab('opname');
+                                                            showNotification('Data riwayat dimuat ke tabel aktif!', 'info');
+                                                        }}
+                                                        className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-medium transition flex items-center gap-1"
+                                                    >
+                                                        <Icon name="rotate-ccw" className="w-3.5 h-3.5" />
+                                                        <span>Muat Data</span>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </main>
+
+                    {/* MODALS */}
+                    {/* MODAL: Tambah Barang */}
+                    {showAddModal && (
+                        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
+                            <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden">
+                                <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+                                    <h3 className="font-bold text-slate-800 text-sm">Tambah Barang Baru</h3>
+                                    <button onClick={() => setShowAddModal(false)} className="text-slate-400 hover:text-slate-600">
+                                        <Icon name="x" className="w-5 h-5" />
+                                    </button>
+                                </div>
+                                <form onSubmit={handleAddNewItem} className="p-5 space-y-4">
+                                    <div>
+                                        <label className="block text-xs font-semibold text-slate-600 mb-1">Kode Barang *</label>
+                                        <input 
+                                            type="text" 
+                                            required 
+                                            placeholder="contoh: BRG-006" 
+                                            value={newItem.code} 
+                                            onChange={e => setNewItem({ ...newItem, code: e.target.value })}
+                                            className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-semibold text-slate-600 mb-1">Nama Barang *</label>
+                                        <input 
+                                            type="text" 
+                                            required 
+                                            placeholder="contoh: Gula Merah Premium" 
+                                            value={newItem.name} 
+                                            onChange={e => setNewItem({ ...newItem, name: e.target.value })}
+                                            className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                                        />
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div>
+                                            <label className="block text-xs font-semibold text-slate-600 mb-1">Satuan</label>
+                                            <input 
+                                                type="text" 
+                                                placeholder="Pcs, Kg, Sak, Box..." 
+                                                value={newItem.unit} 
+                                                onChange={e => setNewItem({ ...newItem, unit: e.target.value })}
+                                                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-semibold text-slate-600 mb-1">Stock Awal</label>
+                                            <input 
+                                                type="number" 
+                                                min="0" 
+                                                value={newItem.stockAwal} 
+                                                onChange={e => setNewItem({ ...newItem, stockAwal: e.target.value })}
+                                                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                                            />
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-semibold text-slate-600 mb-1">Catatan</label>
+                                        <input 
+                                            type="text" 
+                                            placeholder="Opsional..." 
+                                            value={newItem.notes} 
+                                            onChange={e => setNewItem({ ...newItem, notes: e.target.value })}
+                                            className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                                        />
+                                    </div>
+                                    <div className="pt-3 flex items-center justify-end gap-2 border-t border-slate-100">
+                                        <button 
+                                            type="button" 
+                                            onClick={() => setShowAddModal(false)}
+                                            className="px-4 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-lg"
+                                        >
+                                            Batal
+                                        </button>
+                                        <button 
+                                            type="submit" 
+                                            className="px-4 py-2 text-xs font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow-sm"
+                                        >
+                                            Simpan Barang
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* MODAL: Upload Surat Jalan */}
+                    {showUploadModal && (
+                        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
+                            <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden">
+                                <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+                                    <h3 className="font-bold text-slate-800 text-sm">Upload Surat Jalan ({selectedDate})</h3>
+                                    <button onClick={() => setShowUploadModal(false)} className="text-slate-400 hover:text-slate-600">
+                                        <Icon name="x" className="w-5 h-5" />
+                                    </button>
+                                </div>
+                                <form onSubmit={handleUploadSJ} className="p-5 space-y-4">
+                                    <div>
+                                        <label className="block text-xs font-semibold text-slate-600 mb-1">Nomor Surat Jalan / Dokumen *</label>
+                                        <input 
+                                            type="text" 
+                                            required 
+                                            placeholder="SJ-2026/09/XXX" 
+                                            value={newSJ.docNumber} 
+                                            onChange={e => setNewSJ({ ...newSJ, docNumber: e.target.value })}
+                                            className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-semibold text-slate-600 mb-1">Supplier / Vendor</label>
+                                        <input 
+                                            type="text" 
+                                            placeholder="PT. Sinar Jaya..." 
+                                            value={newSJ.supplier} 
+                                            onChange={e => setNewSJ({ ...newSJ, supplier: e.target.value })}
+                                            className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-semibold text-slate-600 mb-1">Foto Surat Jalan (JPG/PNG) *</label>
+                                        <input 
+                                            type="file" 
+                                            accept="image/*"
+                                            onChange={handleImageChange}
+                                            className="w-full text-xs text-slate-500 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"
+                                        />
+                                    </div>
+
+                                    {newSJ.imagePreview && (
+                                        <div className="mt-2 rounded-lg border border-slate-200 overflow-hidden h-36 bg-slate-50 flex items-center justify-center">
+                                            <img src={newSJ.imagePreview} alt="Preview" className="max-h-full max-w-full object-contain" />
+                                        </div>
+                                    )}
+
+                                    <div>
+                                        <label className="block text-xs font-semibold text-slate-600 mb-1">Catatan / Ringkasan Barang</label>
+                                        <textarea 
+                                            rows="2"
+                                            placeholder="Ringkasan item pada surat jalan..." 
+                                            value={newSJ.notes} 
+                                            onChange={e => setNewSJ({ ...newSJ, notes: e.target.value })}
+                                            className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                                        ></textarea>
+                                    </div>
+
+                                    <div className="pt-3 flex items-center justify-end gap-2 border-t border-slate-100">
+                                        <button 
+                                            type="button" 
+                                            onClick={() => setShowUploadModal(false)}
+                                            className="px-4 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-lg"
+                                        >
+                                            Batal
+                                        </button>
+                                        <button 
+                                            type="submit" 
+                                            className="px-4 py-2 text-xs font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow-sm"
+                                        >
+                                            Unggah Surat Jalan
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* MODAL: Full Preview Image */}
+                    {previewImage && (
+                        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+                            <div className="relative max-w-4xl w-full bg-slate-900 rounded-2xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
+                                <div className="p-4 bg-slate-800 text-white flex items-center justify-between">
+                                    <div>
+                                        <h3 className="font-bold text-sm">{previewImage.docNumber}</h3>
+                                        <p className="text-xs text-slate-300">{previewImage.supplier} • {previewImage.date}</p>
+                                    </div>
+                                    <button onClick={() => setPreviewImage(null)} className="p-1 hover:bg-slate-700 rounded-lg">
+                                        <Icon name="x" className="w-6 h-6" />
+                                    </button>
+                                </div>
+                                <div className="flex-1 overflow-auto p-4 flex items-center justify-center bg-black/50">
+                                    <img src={previewImage.imageUrl} alt={previewImage.docNumber} className="max-w-full max-h-[70vh] object-contain rounded-lg" />
+                                </div>
+                                {previewImage.notes && (
+                                    <div className="p-4 bg-slate-800 text-slate-300 text-xs border-t border-slate-700">
+                                        <strong>Catatan:</strong> {previewImage.notes}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* MODAL: Detail History */}
+                    {historyDetail && (
+                        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
+                            <div className="bg-white rounded-xl shadow-xl w-full max-w-3xl overflow-hidden flex flex-col max-h-[85vh]">
+                                <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+                                    <div>
+                                        <h3 className="font-bold text-slate-800">Detail Stock Opname #{historyDetail.id}</h3>
+                                        <p className="text-xs text-slate-500">Tanggal: {historyDetail.date} | Jam: {historyDetail.timestamp}</p>
+                                        <p className="text-xs text-indigo-600 font-medium mt-0.5">PIC: {historyDetail.picName || '-'} | SPV: {historyDetail.spvName || '-'}</p>
+                                    </div>
+                                    <button onClick={() => setHistoryDetail(null)} className="text-slate-400 hover:text-slate-600">
+                                        <Icon name="x" className="w-5 h-5" />
+                                    </button>
+                                </div>
+
+                                <div className="p-5 overflow-y-auto space-y-4">
+                                    <table className="w-full text-left text-xs">
+                                        <thead className="bg-slate-100 text-slate-600 font-semibold border-b">
+                                            <tr>
+                                                <th className="p-2">Kode</th>
+                                                <th className="p-2">Nama</th>
+                                                <th className="p-2 text-center">Satuan</th>
+                                                <th className="p-2 text-center">Awal</th>
+                                                <th className="p-2 text-center">Masuk</th>
+                                                <th className="p-2 text-center text-rose-600">Spoil</th>
+                                                <th className="p-2 text-center text-emerald-700 font-bold">Akhir</th>
+                                                <th className="p-2 text-center text-blue-600">Usage</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-100">
+                                            {historyDetail.itemsSnapshot.map(item => (
+                                                <tr key={item.id}>
+                                                    <td className="p-2 font-mono text-slate-500">{item.code}</td>
+                                                    <td className="p-2 font-medium text-slate-800">{item.name}</td>
+                                                    <td className="p-2 text-center font-semibold text-slate-600">{item.unit || 'Pcs'}</td>
+                                                    <td className="p-2 text-center">{item.stockAwal}</td>
+                                                    <td className="p-2 text-center">{item.barangMasuk}</td>
+                                                    <td className="p-2 text-center text-rose-600">{item.spoilWaste}</td>
+                                                    <td className="p-2 text-center font-bold text-emerald-700">{item.stockAkhir}</td>
+                                                    <td className="p-2 text-center font-bold text-blue-600">{calculateUsage(item)}</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+
+                                <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-end">
+                                    <button 
+                                        onClick={() => setHistoryDetail(null)} 
+                                        className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg text-xs font-semibold"
+                                    >
+                                        Tutup
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* MODAL: Delete Confirm Dialog */}
+                    {deleteConfirm && (
+                        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
+                            <div className="bg-white rounded-xl shadow-xl w-full max-w-sm p-5 text-center">
+                                <div className="w-12 h-12 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mx-auto mb-3">
+                                    <Icon name="alert-triangle" className="w-6 h-6" />
+                                </div>
+                                <h3 className="font-bold text-slate-800 text-base">Hapus Barang Ini?</h3>
+                                <p className="text-xs text-slate-500 mt-1">
+                                    Apakah Anda yakin ingin menghapus <strong>"{deleteConfirm.name}"</strong> dari tabel opname?
+                                </p>
+                                <div className="mt-5 flex items-center justify-center gap-2">
+                                    <button 
+                                        onClick={() => setDeleteConfirm(null)}
+                                        className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium rounded-lg"
+                                    >
+                                        Batal
+                                    </button>
+                                    <button 
+                                        onClick={() => handleDeleteItem(deleteConfirm)}
+                                        className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-medium rounded-lg"
+                                    >
+                                        Ya, Hapus
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Notification Toast */}
+                    <Toast toast={toast} onClose={() => setToast({ ...toast, show: false })} />
+                </div>
+            );
+        }
+
+        const rootElement = document.getElementById('root');
+        const root = ReactDOM.createRoot(rootElement);
+        root.render(
+            <ErrorBoundary>
+                <App />
+            </ErrorBoundary>
+        );
+    </script>
+</body>
+</html>
